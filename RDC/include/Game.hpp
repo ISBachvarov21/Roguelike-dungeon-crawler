@@ -17,6 +17,8 @@ private:
 	Texture plrT;
 	Texture enemyT;
 
+	RectangleShape healthBar;
+
 	Vector2f force;
 	Vector2f velocity;
 
@@ -26,6 +28,7 @@ private:
 
 	Clock clock;
 	Clock dashCD;
+	Clock iTime;
 
 	float dt;
 	bool dashing{false};
@@ -38,5 +41,6 @@ public:
 	void update();
 	void init();
 	void keyHandler();
+	void animatePushBack(Vector2f enemyPos, Vector2f plrPos);
 	bool resolveCollisions();
 };

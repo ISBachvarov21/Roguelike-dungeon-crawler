@@ -1,5 +1,6 @@
 #include "game.hpp"
 #include <algorithm>
+#include <thread>
 
 float clamp(float n, float lower, float upper) {
 	return max(lower, min(n, upper));
@@ -18,6 +19,10 @@ void Game::init() {
 
 	this->plr.init(this->plrT, Vector2f(640, 360), 'p');
 
+	this->healthBar.setFillColor(Color::Green);
+	this->healthBar.setSize(Vector2f(400, 30));
+	this->healthBar.setPosition(Vector2f(840, 650));
+
 	for (int i = 0; i < 100; i++) {
 		Square* square = new Square;
 		square->init(this->squareT, Vector2f(64 * i, 0), 'b');
@@ -26,7 +31,7 @@ void Game::init() {
 
 	for (int i = 0; i < 1; i++) {
 		Enemy* enemy = new Enemy;
-		enemy->init(this->enemyT, Vector2f(64 * i + 20, 128), 'e');
+		enemy->init(this->enemyT, Vector2f(340, 360), 'e');
 		this->objects.push_back(enemy), this->enemies.push_back(enemy);
 	}
 
@@ -65,11 +70,22 @@ void Game::update() {
 			}
 		}
 
-		for (int i = 0; i < this->enemies.size(); i++) {
-			Vector2f distanceFromPlayer = this->plr.getPosition() - this->enemies[i]->getPosition();
+		for (auto enemy : this->enemies) {
+			Vector2f distanceFromPlayer = this->plr.getPosition() - enemy->getPosition();
 			float hypotenuse = sqrt(distanceFromPlayer.x * distanceFromPlayer.x + distanceFromPlayer.y * distanceFromPlayer.y);
 
-			enemies[i]->move(distanceFromPlayer / hypotenuse * 150.f, dt);
+			if (hypotenuse > 47) {
+				enemy->move(distanceFromPlayer / hypotenuse * 150.f, dt);
+			}
+			else {
+				if (this->iTime.getElapsedTime().asSeconds() > 1) {
+					this->iTime.restart();
+					this->healthBar.setSize(this->healthBar.getSize() - Vector2f(40, 0));
+
+					thread t1(&Game::animatePushBack, this, enemy->getPosition(), this->plr.getPosition());
+					t1.detach();
+				}
+			}
 		}
 
 		this->view.setCenter(plr.getPosition());
@@ -78,7 +94,7 @@ void Game::update() {
 		
 		this->render();
 
-		cout << "fps: " << 1000 / (this->dt * 1000) << endl;
+		//cout << "fps: " << 1000 / (this->dt * 1000) << endl;
 
 		this->dt = this->clock.restart().asSeconds();
 	}
@@ -89,12 +105,18 @@ void Game::render() {
 
 	this->window.setView(this->view);
 
-	for (auto& i : this->objects) {
-		i->draw(this->window);
+	for (auto& obj : this->objects) {
+		obj->draw(this->window);
 	}
 
 
 	this->plr.draw(this->window);
+
+	this->window.setView(this->window.getDefaultView());
+
+	this->window.draw(this->healthBar);
+
+	this->window.setView(this->view);
 
 	this->window.display();
 
@@ -180,4 +202,14 @@ bool Game::resolveCollisions() {
 		}
 	}
 	return false;
+}
+
+void Game::animatePushBack(Vector2f enemyPos, Vector2f plrPos) {
+	float vel = 500.f;
+
+	for (int i = 0; i < 20; i++) {
+		this->plr.move(((plrPos - enemyPos) * this->dt * vel) / 20.f);
+		vel *= (1.f - this->dt * 0.99f);
+		sleep(Time(milliseconds(3)));
+	}
 }
