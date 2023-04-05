@@ -1,9 +1,10 @@
 #include "RenderObject.hpp"
 
-void RenderObject::init(Texture& texture, Vector2f position) {
+void RenderObject::init(Texture& texture, Vector2f position, char type) {
 	this->sprite.setTexture(texture);
 	this->sprite.setOrigin(Vector2f((float)(texture.getSize().x) / 2, (float)(texture.getSize().y) / 2));
 	this->sprite.setPosition(position);
+	this->type = type;
 }
 
 void RenderObject::move(Vector2f offset) {

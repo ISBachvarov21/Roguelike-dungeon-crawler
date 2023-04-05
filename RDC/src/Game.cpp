@@ -11,18 +11,24 @@ void Game::init() {
 
 	this->squareT.loadFromFile("./assets/square.png");
 	this->plrT.loadFromFile("./assets/plr.png");
+	this->enemyT.loadFromFile("./assets/enemy.png");
 
 	this->squareT.setSmooth(true);
 	this->plrT.setSmooth(true);
 
-	this->plr.init(this->plrT, Vector2f(640, 360));
+	this->plr.init(this->plrT, Vector2f(640, 360), 'p');
 
 	for (int i = 0; i < 100; i++) {
 		Square* square = new Square;
-		square->init(this->squareT, Vector2f(64 * i, 0));
+		square->init(this->squareT, Vector2f(64 * i, 0), 'b');
 		this->objects.push_back(square);
 	}
 
+	for (int i = 0; i < 1; i++) {
+		Enemy* enemy = new Enemy;
+		enemy->init(this->enemyT, Vector2f(64 * i + 20, 128), 'e');
+		this->objects.push_back(enemy), this->enemies.push_back(enemy);
+	}
 
 	this->view.setCenter(Vector2f(0, 0));
 	this->view.setSize(Vector2f(1280, 720));
@@ -57,6 +63,13 @@ void Game::update() {
 				this->force *= 0.f;
 				this->dashing = false;
 			}
+		}
+
+		for (int i = 0; i < this->enemies.size(); i++) {
+			Vector2f distanceFromPlayer = this->plr.getPosition() - this->enemies[i]->getPosition();
+			float hypotenuse = sqrt(distanceFromPlayer.x * distanceFromPlayer.x + distanceFromPlayer.y * distanceFromPlayer.y);
+
+			enemies[i]->move(distanceFromPlayer / hypotenuse * 150.f, dt);
 		}
 
 		this->view.setCenter(plr.getPosition());
@@ -151,16 +164,18 @@ void Game::keyHandler() {
 bool Game::resolveCollisions() {
 	for (int i = 0; i < 10; i++) {
 		for (auto& i : this->objects) {
-			Vector2f pointOnRect;
+			if (i->type == 'b') {
+				Vector2f pointOnRect;
 
-			pointOnRect.x = clamp(this->plr.getPosition().x, i->getPosition().x - 32, i->getPosition().x + 32);
-			pointOnRect.y = clamp(this->plr.getPosition().y, i->getPosition().y - 32, i->getPosition().y + 32);
+				pointOnRect.x = clamp(this->plr.getPosition().x, i->getPosition().x - 32, i->getPosition().x + 32);
+				pointOnRect.y = clamp(this->plr.getPosition().y, i->getPosition().y - 32, i->getPosition().y + 32);
 
-			float length = sqrt((pointOnRect - this->plr.getPosition()).x * (pointOnRect - this->plr.getPosition()).x + (pointOnRect - this->plr.getPosition()).y * (pointOnRect - this->plr.getPosition()).y);
+				float length = sqrt((pointOnRect - this->plr.getPosition()).x * (pointOnRect - this->plr.getPosition()).x + (pointOnRect - this->plr.getPosition()).y * (pointOnRect - this->plr.getPosition()).y);
 
-			if (length < 23.5) {
-				this->plr.move(Vector2f((this->plr.getPosition() - pointOnRect).x / 23.5, (this->plr.getPosition() - pointOnRect).y / 23.5));
-				return true;
+				if (length < 23.5) {
+					this->plr.move(Vector2f((this->plr.getPosition() - pointOnRect).x / 23.5, (this->plr.getPosition() - pointOnRect).y / 23.5));
+					return true;
+				}
 			}
 		}
 	}

@@ -2,6 +2,7 @@
 #include "precompile.hpp"
 #include "Square.hpp"
 #include "Player.hpp"
+#include "Enemy.hpp"
 #include <vector>
 
 class Game {
@@ -14,12 +15,14 @@ private:
 
 	Texture squareT;
 	Texture plrT;
+	Texture enemyT;
 
 	Vector2f force;
 	Vector2f velocity;
 
 	vector<RenderObject*> objects;
 	vector<Square*> squares;
+	vector<Enemy*> enemies;
 
 	Clock clock;
 	Clock dashCD;
