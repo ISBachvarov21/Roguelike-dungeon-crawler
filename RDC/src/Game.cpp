@@ -1,13 +1,37 @@
 #include "game.hpp"
 #include <algorithm>
 #include <thread>
+#define CAMERADAMPING 4.f
+
+constexpr auto spawn = true;
 
 float clamp(float n, float lower, float upper) {
 	return max(lower, min(n, upper));
 }
 
+Vector2f clamp(Vector2f n, Vector2f lower, Vector2f upper) {
+	Vector2f r{};
+
+	r.x = max(lower.x, min(n.x, upper.x));
+	
+	//cout << max(lower.y, min(n.y, upper.y)) << " " << n.y << " " << lower.y << " " << upper.y << endl;
+
+	r.y = max(lower.y, min(n.y, upper.y));
+
+	return r;
+}
+
+Vector2f clamp(Vector2i n, Vector2i lower, Vector2i upper) {
+	Vector2f r{};
+
+	r.x = max(lower.x, min(n.x, upper.x));
+	r.y = max(lower.y, min(n.y, upper.y));
+
+	return r;
+}
+
 void Game::init() {
-	this->window.create(VideoMode(1280, 720), "game");
+	this->window.create(VideoMode(1920, 1080), "game", sf::Style::Fullscreen);
 	this->window.setFramerateLimit(144);
 
 	this->squareT.loadFromFile("./assets/square.png");
@@ -17,11 +41,14 @@ void Game::init() {
 	this->squareT.setSmooth(true);
 	this->plrT.setSmooth(true);
 
-	this->plr.init(this->plrT, Vector2f(640, 360), 'p');
+	this->plr.init(this->plrT, Vector2f(0, 360), 'p');
 
 	this->healthBar.setFillColor(Color::Green);
 	this->healthBar.setSize(Vector2f(400, 30));
-	this->healthBar.setPosition(Vector2f(840, 650));
+	this->healthBar.setPosition(Vector2f(this->window.getSize().x - 420, this->window.getSize().y - 50));
+
+	this->point.setFillColor(Color::White);
+	this->point.setSize(Vector2f(20, 20));
 
 	for (int i = 0; i < 100; i++) {
 		Square* square = new Square;
@@ -29,19 +56,23 @@ void Game::init() {
 		this->objects.push_back(square);
 	}
 
-	for (int i = 0; i < 1; i++) {
-		Enemy* enemy = new Enemy;
-		enemy->init(this->enemyT, Vector2f(340, 360), 'e');
-		this->objects.push_back(enemy), this->enemies.push_back(enemy);
+	if (spawn) {
+		for (int i = 0; i < 6; i++) {
+			Enemy* enemy = new Enemy;
+			enemy->init(this->enemyT, Vector2f(rand() % 1280, rand() % 890), 'e');
+			this->objects.push_back(enemy), this->enemies.push_back(enemy);
+		}
 	}
 
 	this->view.setCenter(Vector2f(0, 0));
-	this->view.setSize(Vector2f(1280, 720));
+	this->view.setSize(Vector2f(1920, 1080));
 
 	this->update();
 }
 
 void Game::update() {
+	this->view.setCenter(this->plr.getPosition());
+
 	while (this->window.isOpen()) {
 		while (this->window.pollEvent(this->ev)) {
 			if (this->ev.type == sf::Event::Closed) {
@@ -67,28 +98,46 @@ void Game::update() {
 				this->velocity *= 0.f;
 				this->force *= 0.f;
 				this->dashing = false;
+				this->cameraDamping = 6.0f;
 			}
 		}
 
+		bool outOfRange = true;
+		float counter = 1;
+		Vector2f averagePosition = this->plr.getPosition();
+
 		for (auto enemy : this->enemies) {
+			counter++;
+			averagePosition += enemy->getPosition();
 			Vector2f distanceFromPlayer = this->plr.getPosition() - enemy->getPosition();
 			float hypotenuse = sqrt(distanceFromPlayer.x * distanceFromPlayer.x + distanceFromPlayer.y * distanceFromPlayer.y);
 
-			if (hypotenuse > 47) {
-				enemy->move(distanceFromPlayer / hypotenuse * 150.f, dt);
-			}
-			else {
-				if (this->iTime.getElapsedTime().asSeconds() > 1) {
-					this->iTime.restart();
-					this->healthBar.setSize(this->healthBar.getSize() - Vector2f(40, 0));
+			if (hypotenuse < 600) {
+				outOfRange = false;
+				if (hypotenuse > 47) {
+					enemy->move(distanceFromPlayer / hypotenuse * 155.f, dt);
+				}
+				else {
+					if (this->iTime.getElapsedTime().asSeconds() > 0.4 && !this->dashing) {
+						this->iTime.restart();
+						this->healthBar.setSize(this->healthBar.getSize() - Vector2f(40, 0));
 
-					thread t1(&Game::animatePushBack, this, enemy->getPosition(), this->plr.getPosition());
-					t1.detach();
+						thread t1(&Game::animatePushBack, this, enemy->getPosition(), this->plr.getPosition());
+						t1.detach();
+					}
 				}
 			}
 		}
 
-		this->view.setCenter(plr.getPosition());
+		averagePosition /= counter;
+		
+
+		if (counter > 1 && !outOfRange) {
+			this->view.move((averagePosition - this->view.getCenter()) * this->cameraDamping * this->dt);
+		}
+		else {
+			this->view.move((this->plr.getPosition() - this->view.getCenter()) * this->cameraDamping * this->dt);
+		}
 
 		this->plr.setRotation(atan2(this->plr.getPosition().x - this->window.mapPixelToCoords(Mouse::getPosition(this->window)).x, this->plr.getPosition().y - this->window.mapPixelToCoords(Mouse::getPosition(this->window)).y) * 180 / 3.14159265 * -1);
 		
@@ -111,6 +160,8 @@ void Game::render() {
 
 
 	this->plr.draw(this->window);
+
+	this->window.draw(this->point);
 
 	this->window.setView(this->window.getDefaultView());
 
@@ -179,6 +230,8 @@ void Game::keyHandler() {
 			this->force = Vector2f(1500 * dir.x, 1500 * dir.y);
 			this->velocity = force;
 			this->dashing = true;
+			this->cameraDamping = CAMERADAMPING;
+
 		}
 	}
 }
