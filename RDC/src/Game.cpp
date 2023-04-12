@@ -1,14 +1,11 @@
 #include "game.hpp"
 #include <algorithm>
 #include <thread>
-#define CAMERADAMPING 4.f
 
+#define CAMERADAMPING 3.f
 constexpr auto spawn = true;
 
-float clamp(float n, float lower, float upper) {
-	return max(lower, min(n, upper));
-}
-
+#ifdef ADVANCEDCLAMP
 Vector2f clamp(Vector2f n, Vector2f lower, Vector2f upper) {
 	Vector2f r{};
 
@@ -29,26 +26,42 @@ Vector2f clamp(Vector2i n, Vector2i lower, Vector2i upper) {
 
 	return r;
 }
+#endif
+
+float clamp(float n, float lower, float upper) {
+	return max(lower, min(n, upper));
+}
+
+bool del = false;
 
 void Game::init() {
-	this->window.create(VideoMode(1920, 1080), "game", sf::Style::Fullscreen);
+	ContextSettings settings;
+
+	settings.antialiasingLevel = 8;
+
+	this->window.create(VideoMode(1280, 720), "game", sf::Style::Default, settings);
 	this->window.setFramerateLimit(144);
 
 	this->squareT.loadFromFile("./assets/square.png");
-	this->plrT.loadFromFile("./assets/plr.png");
+	this->plrT.loadFromFile("./assets/plrC.png");
 	this->enemyT.loadFromFile("./assets/enemy.png");
+	this->gunT.loadFromFile("./assets/gun.png");
+	this->bulletT.loadFromFile("./assets/bullet.png");
 
 	this->squareT.setSmooth(true);
 	this->plrT.setSmooth(true);
+	this->gunT.setSmooth(true);
+	this->bulletT.setSmooth(true);
 
-	this->plr.init(this->plrT, Vector2f(0, 360), 'p');
+	this->plr.init(this->plrT, Vector2f(-800, 360), 'p');
 
 	this->healthBar.setFillColor(Color::Green);
 	this->healthBar.setSize(Vector2f(400, 30));
 	this->healthBar.setPosition(Vector2f(this->window.getSize().x - 420, this->window.getSize().y - 50));
 
-	this->point.setFillColor(Color::White);
-	this->point.setSize(Vector2f(20, 20));
+	this->gun.setTexture(this->gunT);
+	this->gun.setOrigin(Vector2f(8, 32 + 24));
+	this->gun.setPosition(Vector2f(-800, 360));
 
 	for (int i = 0; i < 100; i++) {
 		Square* square = new Square;
@@ -57,10 +70,10 @@ void Game::init() {
 	}
 
 	if (spawn) {
-		for (int i = 0; i < 6; i++) {
+		for (int i = 0; i < 1; i++) {
 			Enemy* enemy = new Enemy;
-			enemy->init(this->enemyT, Vector2f(rand() % 1280, rand() % 890), 'e');
-			this->objects.push_back(enemy), this->enemies.push_back(enemy);
+			enemy->init(this->enemyT, Vector2f(rand() % 1920, rand() % 1080), 'e');
+			this->enemies.push_back(enemy);
 		}
 	}
 
@@ -78,6 +91,21 @@ void Game::update() {
 			if (this->ev.type == sf::Event::Closed) {
 				this->window.close();
 			}
+			else if (this->ev.type == Event::MouseButtonPressed) {
+				if (ev.key.code == Mouse::Button::Left && this->fireCD.getElapsedTime().asSeconds() > 0.1) {
+					Bullet* bullet = new Bullet;
+					bullet->setTexture(this->bulletT);
+					bullet->setOrigin(Vector2f(4, 4));
+					bullet->setPosition(this->gun.getPosition());
+
+					Vector2f distance = this->plr.getPosition() - this->window.mapPixelToCoords(Mouse::getPosition(this->window));
+					Vector2f normalized = distance / hypotf(distance.x, distance.y);
+					bullet->direction = normalized;
+
+					this->bullets.push_back(bullet);
+					this->fireCD.restart();
+				}
+			}
 		}
 
 		keyHandler();
@@ -85,7 +113,7 @@ void Game::update() {
 		if (this->dashing) {
 			for (int i = 0; i < 20; i++) {
 				this->plr.move((velocity * this->dt) / 20.f);
-				if (resolveCollisions()) {
+				if (resolveCollisions(this->plr, 23.5)) {
 					this->velocity *= 0.f;
 					this->force *= 0.f;
 					this->dashing = false;
@@ -98,7 +126,7 @@ void Game::update() {
 				this->velocity *= 0.f;
 				this->force *= 0.f;
 				this->dashing = false;
-				this->cameraDamping = 6.0f;
+				this->cameraDamping = 3.0f;
 			}
 		}
 
@@ -107,12 +135,12 @@ void Game::update() {
 		Vector2f averagePosition = this->plr.getPosition();
 
 		for (auto enemy : this->enemies) {
-			counter++;
-			averagePosition += enemy->getPosition();
 			Vector2f distanceFromPlayer = this->plr.getPosition() - enemy->getPosition();
 			float hypotenuse = sqrt(distanceFromPlayer.x * distanceFromPlayer.x + distanceFromPlayer.y * distanceFromPlayer.y);
 
 			if (hypotenuse < 600) {
+				counter++;
+				averagePosition += enemy->getPosition();
 				outOfRange = false;
 				if (hypotenuse > 47) {
 					enemy->move(distanceFromPlayer / hypotenuse * 155.f, dt);
@@ -121,6 +149,7 @@ void Game::update() {
 					if (this->iTime.getElapsedTime().asSeconds() > 0.4 && !this->dashing) {
 						this->iTime.restart();
 						this->healthBar.setSize(this->healthBar.getSize() - Vector2f(40, 0));
+						this->hp -= 10;
 
 						thread t1(&Game::animatePushBack, this, enemy->getPosition(), this->plr.getPosition());
 						t1.detach();
@@ -131,6 +160,37 @@ void Game::update() {
 
 		averagePosition /= counter;
 		
+		// 
+		// 
+		// 
+		// 
+		// bullet hitbox handling
+		
+		for (int i = this->bullets.size() - 1; i >= 0; i--) {
+			bullets[i]->move(bullets[i]->direction * -600.f * this->dt);
+			bullets[i]->distance += hypotf((bullets[i]->direction * -600.f * this->dt).x, (bullets[i]->direction * -600.f * this->dt).y);
+			if (resolveCollisions(*bullets[i], 2) || bullets[i]->distance > 4000) {
+				this->bullets.erase(this->bullets.begin() + i);
+			}
+			vector<int> indexes = resolveCollisionsEnemy(*bullets[i], 2);
+
+			if (!indexes.empty()) {
+				for (int j = 0; j < indexes.size(); j++) {
+					this->enemies[j]->takeDamage(20);
+					if (this->enemies[j]->getHp() <= 0) {
+						this->enemies.erase(this->enemies.begin() + indexes[j]);
+					}
+				}
+				this->bullets.erase(this->bullets.begin() + i);
+			}
+		}
+
+		//
+		//
+		//
+		//
+		//
+
 
 		if (counter > 1 && !outOfRange) {
 			this->view.move((averagePosition - this->view.getCenter()) * this->cameraDamping * this->dt);
@@ -140,7 +200,9 @@ void Game::update() {
 		}
 
 		this->plr.setRotation(atan2(this->plr.getPosition().x - this->window.mapPixelToCoords(Mouse::getPosition(this->window)).x, this->plr.getPosition().y - this->window.mapPixelToCoords(Mouse::getPosition(this->window)).y) * 180 / 3.14159265 * -1);
-		
+		this->gun.setRotation(atan2(this->gun.getPosition().x - this->window.mapPixelToCoords(Mouse::getPosition(this->window)).x, this->gun.getPosition().y - this->window.mapPixelToCoords(Mouse::getPosition(this->window)).y) * 180 / 3.14159265 * -1);
+		this->gun.setPosition(this->plr.getPosition());
+
 		this->render();
 
 		//cout << "fps: " << 1000 / (this->dt * 1000) << endl;
@@ -152,25 +214,35 @@ void Game::update() {
 void Game::render() {
 	this->window.clear();
 
-	this->window.setView(this->view);
+	if (this->hp > 0) {
+		this->window.setView(this->view);
 
-	for (auto& obj : this->objects) {
-		obj->draw(this->window);
+		for (auto& obj : this->objects) {
+			obj->draw(this->window);
+		}
+
+		for (auto& enemy : this->enemies) {
+			if (enemy->getHp() > 0) {
+				enemy->draw(this->window);
+			}
+		}
+
+		this->plr.draw(this->window);
+		
+		for (auto& bullet : this->bullets) {
+			bullet->draw(this->window);
+		}
+
+		this->window.draw(this->gun);
+
+		this->window.setView(this->window.getDefaultView());
+
+		this->window.draw(this->healthBar);
+
+		this->window.setView(this->view);
 	}
 
-
-	this->plr.draw(this->window);
-
-	this->window.draw(this->point);
-
-	this->window.setView(this->window.getDefaultView());
-
-	this->window.draw(this->healthBar);
-
-	this->window.setView(this->view);
-
 	this->window.display();
-
 }
 
 void Game::keyHandler() {
@@ -179,7 +251,7 @@ void Game::keyHandler() {
 	if (Keyboard::isKeyPressed(Keyboard::A)) {
 		for (int i = 0; i < 5; i++) {
 			this->plr.move(Vector2f(-200, 0) / 5.f, this->dt);
-			if (resolveCollisions()) {
+			if (resolveCollisions(this->plr, 23.5)) {
 				break;
 			}
 		}
@@ -188,7 +260,7 @@ void Game::keyHandler() {
 	else if (Keyboard::isKeyPressed(Keyboard::D)) {
 		for (int i = 0; i < 5; i++) {
 			this->plr.move(Vector2f(200, 0) / 5.f, this->dt);
-			if (resolveCollisions()) {
+			if (resolveCollisions(this->plr, 23.5)) {
 				break;
 			}
 		}
@@ -201,7 +273,7 @@ void Game::keyHandler() {
 	if (Keyboard::isKeyPressed(Keyboard::W)) {
 		for (int i = 0; i < 5; i++) {
 			this->plr.move(Vector2f(0, -200) / 5.f, this->dt);
-			if (resolveCollisions()) {
+			if (resolveCollisions(this->plr, 23.5)) {
 				break;
 			}
 		}
@@ -211,7 +283,7 @@ void Game::keyHandler() {
 	else if (Keyboard::isKeyPressed(Keyboard::S)) {
 		for (int i = 0; i < 5; i++) {
 			this->plr.move(Vector2f(0, 200) / 5.f, this->dt);
-			if (resolveCollisions()) {
+			if (resolveCollisions(this->plr, 23.5)) {
 				break;
 			}
 		}
@@ -234,27 +306,65 @@ void Game::keyHandler() {
 
 		}
 	}
+
+	if (Keyboard::isKeyPressed(Keyboard::Space)) {
+		
+		float timePassed = this->fireCD.getElapsedTime().asSeconds();
+
+		if (timePassed > 0.5) {
+			Bullet* bullet = new Bullet;
+			bullet->setTexture(this->bulletT);
+			bullet->setOrigin(Vector2f(4, 4));
+			bullet->setPosition(this->gun.getPosition());
+
+			Vector2f distance = this->plr.getPosition() - this->window.mapPixelToCoords(Mouse::getPosition(this->window));
+			Vector2f normalized = distance / hypotf(distance.x, distance.y);
+			bullet->direction = normalized;
+
+			this->bullets.push_back(bullet);
+			this->fireCD.restart();
+		}
+	}
 }
 
-bool Game::resolveCollisions() {
+bool Game::resolveCollisions(RenderObject& obj, float radius) {
 	for (int i = 0; i < 10; i++) {
 		for (auto& i : this->objects) {
-			if (i->type == 'b') {
+			if (i->type == 'b' || i->type == 'e') {
 				Vector2f pointOnRect;
 
-				pointOnRect.x = clamp(this->plr.getPosition().x, i->getPosition().x - 32, i->getPosition().x + 32);
-				pointOnRect.y = clamp(this->plr.getPosition().y, i->getPosition().y - 32, i->getPosition().y + 32);
+				pointOnRect.x = clamp(obj.getPosition().x, i->getPosition().x - 32, i->getPosition().x + 32);
+				pointOnRect.y = clamp(obj.getPosition().y, i->getPosition().y - 32, i->getPosition().y + 32);
 
-				float length = sqrt((pointOnRect - this->plr.getPosition()).x * (pointOnRect - this->plr.getPosition()).x + (pointOnRect - this->plr.getPosition()).y * (pointOnRect - this->plr.getPosition()).y);
+				float length = sqrt((pointOnRect - obj.getPosition()).x * (pointOnRect - obj.getPosition()).x + (pointOnRect - obj.getPosition()).y * (pointOnRect - obj.getPosition()).y);
 
-				if (length < 23.5) {
-					this->plr.move(Vector2f((this->plr.getPosition() - pointOnRect).x / 23.5, (this->plr.getPosition() - pointOnRect).y / 23.5));
+				if (length < radius) {
+					obj.move(Vector2f((obj.getPosition() - pointOnRect).x / radius, (obj.getPosition() - pointOnRect).y / radius));
 					return true;
 				}
 			}
 		}
 	}
 	return false;
+}
+
+vector<int> Game::resolveCollisionsEnemy(Bullet& bullet, float size) {
+	vector<int> hitIndexes;
+
+	for (int i = 0; i < this->enemies.size(); i++) {
+		Vector2f pointOnRect;
+
+		pointOnRect.x = clamp(bullet.getPosition().x, this->enemies[i]->getPosition().x - 32, this->enemies[i]->getPosition().x + 32);
+		pointOnRect.y = clamp(bullet.getPosition().y, this->enemies[i]->getPosition().y - 32, this->enemies[i]->getPosition().y + 32);
+
+		float length = sqrt((pointOnRect - bullet.getPosition()).x * (pointOnRect - bullet.getPosition()).x + (pointOnRect - bullet.getPosition()).y * (pointOnRect - bullet.getPosition()).y);
+
+		if (length < size) {
+			hitIndexes.push_back(i);
+		}
+	}
+
+	return hitIndexes;
 }
 
 void Game::animatePushBack(Vector2f enemyPos, Vector2f plrPos) {

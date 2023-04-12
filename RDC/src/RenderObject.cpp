@@ -15,6 +15,14 @@ void RenderObject::draw(RenderWindow& window) {
 	window.draw(this->sprite);
 }
 
+void RenderObject::setOrigin(Vector2f origin) {
+	this->sprite.setOrigin(origin);
+}
+
+void RenderObject::setPosition(Vector2f position) {
+	this->sprite.setPosition(position);
+}
+
 Vector2f RenderObject::getPosition() {
 	return this->sprite.getPosition();
 }

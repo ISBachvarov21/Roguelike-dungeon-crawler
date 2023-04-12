@@ -19,6 +19,7 @@
     </ProjectConfiguration>
   </ItemGroup>
   <ItemGroup>
+    <ClCompile Include="src\Bullet.cpp" />
     <ClCompile Include="src\Enemy.cpp" />
     <ClCompile Include="src\Game.cpp" />
     <ClCompile Include="src\main.cpp" />
@@ -27,6 +28,7 @@
     <ClCompile Include="src\Square.cpp" />
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="include\Bullet.hpp" />
     <ClInclude Include="include\Enemy.hpp" />
     <ClInclude Include="include\Game.hpp" />
     <ClInclude Include="include\Player.hpp" />

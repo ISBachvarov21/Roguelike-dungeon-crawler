@@ -3,6 +3,7 @@
 #include "Square.hpp"
 #include "Player.hpp"
 #include "Enemy.hpp"
+#include "Bullet.hpp"
 #include <vector>
 
 class Game {
@@ -16,9 +17,13 @@ private:
 	Texture squareT;
 	Texture plrT;
 	Texture enemyT;
+	Texture gunT;
+	Texture bulletT;
 
 	RectangleShape healthBar;
 	RectangleShape point;
+
+	Sprite gun;
 
 	Vector2f force;
 	Vector2f velocity;
@@ -27,13 +32,16 @@ private:
 	vector<RenderObject*> objects;
 	vector<Square*> squares;
 	vector<Enemy*> enemies;
+	vector<Bullet*> bullets;
 
 	Clock clock;
 	Clock dashCD;
 	Clock iTime;
+	Clock fireCD;
 
 	float dt;
 	float cameraDamping{ 6.f };
+	int hp = 100;
 	bool dashing{false};
 
 public:
@@ -45,6 +53,6 @@ public:
 	void init();
 	void keyHandler();
 	void animatePushBack(Vector2f enemyPos, Vector2f plrPos);
-	void handleZoom();
-	bool resolveCollisions();
+	bool resolveCollisions(RenderObject& obj, float radius);
+	vector<int> resolveCollisionsEnemy(Bullet& bullet, float size);
 };
