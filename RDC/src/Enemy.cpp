@@ -10,10 +10,10 @@ void Enemy::move(Vector2f offset, float dt) {
 	this->pos = this->sprite.getPosition();
 }
 
-void Enemy::takeDamage(int damage) {
+void Enemy::takeDamage(float damage) {
 	this->hp -= damage;
 }
 
-int Enemy::getHp() {
+float Enemy::getHp() {
 	return this->hp;
 }

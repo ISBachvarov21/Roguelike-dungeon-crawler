@@ -3,6 +3,7 @@
 #include <thread>
 
 #define CAMERADAMPING 3.f
+#define PI 3.14159265359
 constexpr auto spawn = true;
 
 #ifdef ADVANCEDCLAMP
@@ -43,7 +44,7 @@ void Game::init() {
 	this->window.setFramerateLimit(144);
 
 	this->squareT.loadFromFile("./assets/square.png");
-	this->plrT.loadFromFile("./assets/plrC.png");
+	this->plrT.loadFromFile("./assets/plr.png");
 	this->enemyT.loadFromFile("./assets/enemy.png");
 	this->gunT.loadFromFile("./assets/gun.png");
 	this->bulletT.loadFromFile("./assets/bullet.png");
@@ -63,16 +64,23 @@ void Game::init() {
 	this->gun.setOrigin(Vector2f(8, 32 + 24));
 	this->gun.setPosition(Vector2f(-800, 360));
 
-	for (int i = 0; i < 100; i++) {
+	this->point.setSize(Vector2f(8, 8));
+	this->point.setFillColor(Color::Red);
+	this->pointL.setSize(Vector2f(8, 8));
+	this->pointL.setFillColor(Color::White);
+	this->pointR.setSize(Vector2f(8, 8));
+	this->pointR.setFillColor(Color::White);
+
+	/*for (int i = 0; i < 100; i++) {
 		Square* square = new Square;
 		square->init(this->squareT, Vector2f(64 * i, 0), 'b');
 		this->objects.push_back(square);
-	}
+	}*/
 
 	if (spawn) {
-		for (int i = 0; i < 1; i++) {
+		for (int i = 0; i < 100; i++) {
 			Enemy* enemy = new Enemy;
-			enemy->init(this->enemyT, Vector2f(rand() % 1920, rand() % 1080), 'e');
+			enemy->init(this->enemyT, Vector2f(rand() % 1920 + i, rand() % 1080 + i), 'e');
 			this->enemies.push_back(enemy);
 		}
 	}
@@ -93,17 +101,7 @@ void Game::update() {
 			}
 			else if (this->ev.type == Event::MouseButtonPressed) {
 				if (ev.key.code == Mouse::Button::Left && this->fireCD.getElapsedTime().asSeconds() > 0.1) {
-					Bullet* bullet = new Bullet;
-					bullet->setTexture(this->bulletT);
-					bullet->setOrigin(Vector2f(4, 4));
-					bullet->setPosition(this->gun.getPosition());
-
-					Vector2f distance = this->plr.getPosition() - this->window.mapPixelToCoords(Mouse::getPosition(this->window));
-					Vector2f normalized = distance / hypotf(distance.x, distance.y);
-					bullet->direction = normalized;
-
-					this->bullets.push_back(bullet);
-					this->fireCD.restart();
+					spawnBullet();
 				}
 			}
 		}
@@ -169,19 +167,18 @@ void Game::update() {
 		for (int i = this->bullets.size() - 1; i >= 0; i--) {
 			bullets[i]->move(bullets[i]->direction * -600.f * this->dt);
 			bullets[i]->distance += hypotf((bullets[i]->direction * -600.f * this->dt).x, (bullets[i]->direction * -600.f * this->dt).y);
-			if (resolveCollisions(*bullets[i], 2) || bullets[i]->distance > 4000) {
+			vector<int> indexes = resolveCollisionsEnemy(*bullets[i], 2);
+			if (!indexes.empty() || resolveCollisions(*bullets[i], 2) || bullets[i]->distance > bullets[i]->maxDistance) {
 				this->bullets.erase(this->bullets.begin() + i);
 			}
-			vector<int> indexes = resolveCollisionsEnemy(*bullets[i], 2);
 
 			if (!indexes.empty()) {
 				for (int j = 0; j < indexes.size(); j++) {
-					this->enemies[j]->takeDamage(20);
-					if (this->enemies[j]->getHp() <= 0) {
+					this->enemies[indexes[j]]->takeDamage(bullets[i]->damage);
+					if (this->enemies[indexes[j]]->getHp() <= 0) {
 						this->enemies.erase(this->enemies.begin() + indexes[j]);
 					}
 				}
-				this->bullets.erase(this->bullets.begin() + i);
 			}
 		}
 
@@ -234,6 +231,10 @@ void Game::render() {
 		}
 
 		this->window.draw(this->gun);
+		
+		this->window.draw(this->pointL);
+		this->window.draw(this->pointR);
+		this->window.draw(this->point);
 
 		this->window.setView(this->window.getDefaultView());
 
@@ -308,23 +309,46 @@ void Game::keyHandler() {
 	}
 
 	if (Keyboard::isKeyPressed(Keyboard::Space)) {
-		
-		float timePassed = this->fireCD.getElapsedTime().asSeconds();
-
-		if (timePassed > 0.5) {
-			Bullet* bullet = new Bullet;
-			bullet->setTexture(this->bulletT);
-			bullet->setOrigin(Vector2f(4, 4));
-			bullet->setPosition(this->gun.getPosition());
-
-			Vector2f distance = this->plr.getPosition() - this->window.mapPixelToCoords(Mouse::getPosition(this->window));
-			Vector2f normalized = distance / hypotf(distance.x, distance.y);
-			bullet->direction = normalized;
-
-			this->bullets.push_back(bullet);
-			this->fireCD.restart();
-		}
+		spawnBullet(10, 3000, 0.01, 20, 1);
 	}
+}
+
+// spread - spread angle in degrees
+void Game::spawnBullet(float damage, float maxDistance, float cd, int spreadAngle, int shotCount) {
+	if (this->fireCD.getElapsedTime().asSeconds() < cd) {
+		return;
+	}
+
+	for (int i = 0; i < shotCount; i++) {
+		Vector2f mouseToGun = this->gun.getPosition() - this->window.mapPixelToCoords(Mouse::getPosition(this->window));
+		Vector2f mouseToGunNorm = mouseToGun / hypotf(mouseToGun.x, mouseToGun.y);
+
+		Bullet* bullet = new Bullet(damage, maxDistance);
+		bullet->setTexture(this->bulletT);
+		bullet->setOrigin(Vector2f(4, 4));
+		bullet->setPosition(this->gun.getPosition() + mouseToGunNorm * -50.f);
+
+
+		Vector2f distance = this->plr.getPosition() - this->window.mapPixelToCoords(Mouse::getPosition(this->window));
+		float angle = atan2(distance.y, distance.x);
+	
+		Vector2f start(this->plr.getPosition().x - 500 * cos(angle - spreadAngle * PI / 180), this->plr.getPosition().y - 500 * sin(angle - spreadAngle * PI / 180));
+		Vector2f end(this->plr.getPosition().x - 500 * cos(angle + spreadAngle * PI / 180), this->plr.getPosition().y - 500 * sin(angle + spreadAngle * PI / 180));
+
+		float percentage = (float) rand() / RAND_MAX;
+		Vector2f spred(start.x * (1.0f - percentage) + end.x * percentage, start.y * (1.0f - percentage) + end.y * percentage);
+		Vector2f distanceSpread = this->plr.getPosition() - spred;
+	
+		Vector2f normalized = distanceSpread / hypotf(distanceSpread.x, distanceSpread.y);
+		bullet->direction = normalized;
+
+		this->pointL.setPosition(this->plr.getPosition().x - 500 * cos(angle - spreadAngle * PI / 180), this->plr.getPosition().y - 500 * sin(angle - spreadAngle * PI / 180));
+		this->pointR.setPosition(this->plr.getPosition().x - 500 * cos(angle + spreadAngle * PI / 180), this->plr.getPosition().y - 500 * sin(angle + spreadAngle * PI / 180));
+
+		this->bullets.push_back(bullet);
+
+	}
+	this->fireCD.restart();
 }
 
 bool Game::resolveCollisions(RenderObject& obj, float radius) {

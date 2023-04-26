@@ -22,6 +22,8 @@ private:
 
 	RectangleShape healthBar;
 	RectangleShape point;
+	RectangleShape pointL;
+	RectangleShape pointR;
 
 	Sprite gun;
 
@@ -52,6 +54,7 @@ public:
 	void update();
 	void init();
 	void keyHandler();
+	void spawnBullet(float damage = 20, float maxDistance = 4000, float cd = 0.35, int spread = 0, int shotCount = 1);
 	void animatePushBack(Vector2f enemyPos, Vector2f plrPos);
 	bool resolveCollisions(RenderObject& obj, float radius);
 	vector<int> resolveCollisionsEnemy(Bullet& bullet, float size);
