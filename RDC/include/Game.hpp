@@ -36,10 +36,11 @@ private:
 	vector<Enemy*> enemies;
 	vector<Bullet*> bullets;
 
+	atomic_bool finished;
+
 	Clock clock;
 	Clock dashCD;
 	Clock iTime;
-	Clock fireCD;
 
 	FloatRect screen;
 
@@ -57,7 +58,8 @@ public:
 	void init();
 	void keyHandler();
 	void spawnBullet();
-	void animatePushBack(Vector2f enemyPos, Vector2f plrPos);
+	void animatePushBack();
+	//void bulletHandler();
 	bool resolveCollisions(RenderObject& obj, float radius);
 	vector<int> resolveCollisionsEnemy(Bullet& bullet, float size);
 };

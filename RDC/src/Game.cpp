@@ -6,11 +6,14 @@
 #define CAMERADAMPING 3.f
 #define PI 3.14159265359
 constexpr auto spawn = true;
-atomic_bool s_trySpawn;
-thread *bulletThread = nullptr;
+constexpr auto unlockFps = true;
+static atomic_bool s_trySpawn;
+static atomic_bool s_tryPush;
+//thread* bulletManagementThread = nullptr;
+thread* bulletSpawnThread = nullptr;
+thread* pushbackThread = nullptr;
 
-// float damage = (20.0F), float maxDistance = (4000.0F), float cd = (0.35F), float spreadAngle = (0.0F), int shotCount = 1, bool burst = false
-
+// struct for bullet data
 struct BD {
 	float damage;
 	float maxDistance;
@@ -18,7 +21,17 @@ struct BD {
 	float spreadAngle;
 	int shotCount;
 	bool burst;
+	Texture* bulletTexture;
+	Sprite* gun;
+	Player* player;
+	vector<Bullet*>* bullets;
 }bulletDetails;
+
+// struct for enemy push values
+struct EP {
+	float velocity;
+	Enemy* enemy;
+}enemyPush;
 
 #ifdef ADVANCEDCLAMP
 Vector2f clamp(Vector2f n, Vector2f lower, Vector2f upper) {
@@ -54,7 +67,8 @@ void Game::init() {
 	settings.antialiasingLevel = 8;
 
 	this->window.create(VideoMode(1280, 720), "game", sf::Style::Default, settings);
-	//this->window.setFramerateLimit(144);
+	
+	this->window.setFramerateLimit(144);
 
 	this->squareT.loadFromFile("./assets/square.png");
 	this->plrT.loadFromFile("./assets/plr.png");
@@ -105,8 +119,15 @@ void Game::init() {
 	this->screen.width = this->view.getSize().x;
 
 	s_trySpawn.store(false);
-	bulletThread = new thread(&Game::spawnBullet, this);
-	bulletThread->detach();
+	s_tryPush.store(false);
+	bulletSpawnThread = new thread(&Game::spawnBullet, this);
+	bulletSpawnThread->detach();
+	pushbackThread = new thread(&Game::animatePushBack, this);
+	pushbackThread->detach();/*
+	bulletManagementThread = new thread(&Game::bulletHandler, this);
+	bulletManagementThread->detach();*/
+
+	bulletDetails.bullets = &this->bullets;
 
 	this->update();
 }
@@ -120,13 +141,16 @@ void Game::update() {
 				this->window.close();
 			}
 			else if (this->ev.type == Event::MouseButtonPressed) {
-				s_trySpawn.store(true);
 				bulletDetails.burst = true;
 				bulletDetails.cd = 0.35f;
 				bulletDetails.damage = 5.f;
 				bulletDetails.maxDistance = 4000.f;
 				bulletDetails.shotCount = 10;
 				bulletDetails.spreadAngle = 1.f;
+				bulletDetails.bulletTexture = &this->bulletT;
+				bulletDetails.gun = &this->gun;
+				bulletDetails.player = &this->plr;
+				s_trySpawn.store(true);
 			}
 		}
 
@@ -134,7 +158,7 @@ void Game::update() {
 
 		if (this->dashing) {
 			for (int i = 0; i < 20; i++) {
-				this->plr.move((velocity * this->dt) / 20.f);
+				this->plr.move((this->velocity * this->dt) / 20.f);
 				if (resolveCollisions(this->plr, 23.5)) {
 					this->velocity *= 0.f;
 					this->force *= 0.f;
@@ -143,6 +167,8 @@ void Game::update() {
 				}
 			}
 			this->velocity *= (1.f - this->dt * 0.99f);
+
+			//cout << this->velocity.x << " " << this->velocity.y << endl;
 
 			if (abs(this->velocity.x) < 1300 && abs(this->velocity.y) < 1300) {
 				this->velocity *= 0.f;
@@ -173,8 +199,9 @@ void Game::update() {
 						this->healthBar.setSize(this->healthBar.getSize() - Vector2f(40, 0));
 						this->hp -= 10;
 
-						thread t1(&Game::animatePushBack, this, enemy->getPosition(), this->plr.getPosition());
-						t1.detach();
+						enemyPush.enemy = enemy;
+						enemyPush.velocity = 2500.f;
+						s_tryPush.store(true);
 					}
 				}
 			}
@@ -189,18 +216,23 @@ void Game::update() {
 		// bullet hitbox handling
 	
 		for (int i = this->bullets.size() - 1; i >= 0; i--) {
-			bullets[i]->move(bullets[i]->direction * -600.f * this->dt);
-			bullets[i]->distance += hypotf((bullets[i]->direction * -600.f * this->dt).x, (bullets[i]->direction * -600.f * this->dt).y);
-			vector<int> indexes = resolveCollisionsEnemy(*bullets[i], 2);
-			if (!indexes.empty() || resolveCollisions(*bullets[i], 2) || bullets[i]->distance > bullets[i]->maxDistance) {
+			this->bullets[i]->move(bullets[i]->direction * -600.f * this->dt);
+			this->bullets[i]->distance += hypotf((this->bullets[i]->direction * -600.f * this->dt).x, (this->bullets[i]->direction * -600.f * this->dt).y);
+			vector<int> indexes = resolveCollisionsEnemy(*this->bullets[i], 2);
+			if (!indexes.empty() || resolveCollisions(*this->bullets[i], 2) || this->bullets[i]->distance > this->bullets[i]->maxDistance) {
 				this->bullets.erase(this->bullets.begin() + i);
 			}
 
 			if (!indexes.empty()) {
 				for (int j = 0; j < indexes.size(); j++) {
-					this->enemies[indexes[j]]->takeDamage(bullets[i]->damage);
+					this->enemies[indexes[j]]->takeDamage(this->bullets[i]->damage);
 					if (this->enemies[indexes[j]]->getHp() <= 0) {
-						this->enemies.erase(this->enemies.begin() + indexes[j]);
+						try {
+							this->enemies.erase(this->enemies.begin() + indexes[j]);
+						}
+						catch(const exception& ex) {
+							cout << ex.what() << endl;
+						}
 					}
 				}
 			}
@@ -231,9 +263,13 @@ void Game::update() {
 		this->dt = this->clock.restart().asSeconds();
 	}
 
-	bulletThread->join();
-	bulletThread = nullptr;
-	delete bulletThread;
+	bulletSpawnThread = nullptr;
+	delete bulletSpawnThread;
+	pushbackThread = nullptr;
+	delete pushbackThread;
+	/*bulletManagementThread = nullptr;
+	delete bulletManagementThread;*/
+
 }
 
 void Game::render() {
@@ -337,54 +373,61 @@ void Game::keyHandler() {
 	}
 
 	if (Keyboard::isKeyPressed(Keyboard::Space)) {
-		s_trySpawn.store(true);
 		bulletDetails.burst = false;
 		bulletDetails.cd = 0.01f;
-		bulletDetails.damage = 10;
+		bulletDetails.damage = 50;
 		bulletDetails.maxDistance = 3000.f;
 		bulletDetails.shotCount = 1;
 		bulletDetails.spreadAngle = 20;
+		bulletDetails.bulletTexture = &this->bulletT;
+		bulletDetails.gun = &this->gun;
+		bulletDetails.player = &this->plr;
+		s_trySpawn.store(true);
 	}
 }
 
 // spread - spread angle in degrees
 void Game::spawnBullet() {
+	Clock fireCD;
+	vector<Bullet*>* bullets = bulletDetails.bullets;
 
 	while (this->window.isOpen()) {
-		if (s_trySpawn.load() == true) {
+		if (s_trySpawn.load()) {
+			s_trySpawn.store(false);
+
 			float damage = bulletDetails.damage, cd = bulletDetails.cd, maxDistance = bulletDetails.maxDistance, spreadAngle = bulletDetails.spreadAngle;
 			int shotCount = bulletDetails.shotCount;
 			bool burst = bulletDetails.burst;
-			s_trySpawn.store(false);
-			if (this->fireCD.getElapsedTime().asSeconds() >= cd) {
+			Texture* bulletT = bulletDetails.bulletTexture;
+
+			if (fireCD.getElapsedTime().asSeconds() >= cd) {
 				for (int i = 0; i < shotCount; i++) {
-					this->fireCD.restart();
-					Vector2f mouseToGun = this->gun.getPosition() - this->window.mapPixelToCoords(Mouse::getPosition(this->window));
+					fireCD.restart();
+
+					Vector2f gunPosition = bulletDetails.gun->getPosition(), mousePosition = this->window.mapPixelToCoords(Mouse::getPosition(this->window)), playerPosition = bulletDetails.player->getPosition();
+					Vector2f mouseToGun = gunPosition - mousePosition;
 					Vector2f mouseToGunNorm = mouseToGun / hypotf(mouseToGun.x, mouseToGun.y);
 
 					Bullet* bullet = new Bullet(damage, maxDistance);
-					bullet->setTexture(this->bulletT);
+					bullet->setTexture(*bulletT);
 					bullet->setOrigin(Vector2f(4, 4));
-					bullet->setPosition(this->gun.getPosition() + mouseToGunNorm * -50.f);
+					bullet->setPosition(gunPosition + mouseToGunNorm * -50.f);
 
 
-					Vector2f distance = this->plr.getPosition() - this->window.mapPixelToCoords(Mouse::getPosition(this->window));
+					Vector2f distance = playerPosition - mousePosition;
 					float angle = atan2(distance.y, distance.x);
 
-					Vector2f start(this->plr.getPosition().x - 500 * cos(angle - spreadAngle * PI / 180), this->plr.getPosition().y - 500 * sin(angle - spreadAngle * PI / 180));
-					Vector2f end(this->plr.getPosition().x - 500 * cos(angle + spreadAngle * PI / 180), this->plr.getPosition().y - 500 * sin(angle + spreadAngle * PI / 180));
+					Vector2f start(playerPosition.x - 500 * cos(angle - spreadAngle * PI / 180), playerPosition.y - 500 * sin(angle - spreadAngle * PI / 180));
+					Vector2f end(playerPosition.x - 500 * cos(angle + spreadAngle * PI / 180), playerPosition.y - 500 * sin(angle + spreadAngle * PI / 180));
 
 					float percentage = (float)rand() / RAND_MAX;
 					Vector2f spred(start.x * (1.0f - percentage) + end.x * percentage, start.y * (1.0f - percentage) + end.y * percentage);
-					Vector2f distanceSpread = this->plr.getPosition() - spred;
+					Vector2f distanceSpread = playerPosition - spred;
 
 					Vector2f normalized = distanceSpread / hypotf(distanceSpread.x, distanceSpread.y);
 					bullet->direction = normalized;
 
-					this->pointL.setPosition(this->plr.getPosition().x - 500 * cos(angle - spreadAngle * PI / 180), this->plr.getPosition().y - 500 * sin(angle - spreadAngle * PI / 180));
-					this->pointR.setPosition(this->plr.getPosition().x - 500 * cos(angle + spreadAngle * PI / 180), this->plr.getPosition().y - 500 * sin(angle + spreadAngle * PI / 180));
-
-					this->bullets.push_back(bullet);
+					bullets->push_back(bullet);
 
 					if (burst) {
 						sleep(Time(milliseconds(40)));
@@ -392,9 +435,39 @@ void Game::spawnBullet() {
 				}
 			}
 		}
+		sleep(Time(milliseconds(8.3333)));
 	}
-
 }
+
+//void Game::bulletHandler() {
+//	Clock c;
+//	float newDt = 0;
+//
+//	while (this->window.isOpen()) {
+//		for (int i = this->bullets.size() - 1; i >= 0; i--) {
+//			this->bullets[i]->move(bullets.load()[i]->direction * -600.f * newDt);
+//			this->bullets[i]->distance += hypotf((this->bullets[i]->direction * -600.f * newDt).x, (this->bullets[i]->direction * -600.f * newDt).y);
+//			
+//			vector<int> indexes = this->resolveCollisionsEnemy(*this->bullets[i], 2);
+//
+//			if (!indexes.empty() || this->resolveCollisions(*this->bullets[i], 2) || this->bullets[i]->distance > this->bullets[i]->maxDistance) {
+//				this->bullets.erase(this->bullets.begin() + i);
+//			}
+//
+//			if (!indexes.empty()) {
+//				for (int j = 0; j < indexes.size(); j++) {
+//					this->enemies[indexes[j]]->takeDamage(this->bullets[i]->damage);
+//					if (this->enemies[indexes[j]]->getHp() <= 0) {
+//						this->enemies.erase(this->enemies.begin() + indexes[j]);
+//					}
+//				}
+//			}
+//		}
+//
+//		newDt = c.restart().asSeconds();
+//	}
+//
+//}
 
 bool Game::resolveCollisions(RenderObject& obj, float radius) {
 	for (int i = 0; i < 10; i++) {
@@ -420,7 +493,7 @@ bool Game::resolveCollisions(RenderObject& obj, float radius) {
 vector<int> Game::resolveCollisionsEnemy(Bullet& bullet, float size) {
 	vector<int> hitIndexes;
 
-	for (int i = 0; i < this->enemies.size(); i++) {
+	for (size_t i = 0; i < this->enemies.size(); i++) {
 		Vector2f pointOnRect;
 
 		pointOnRect.x = clamp(bullet.getPosition().x, this->enemies[i]->getPosition().x - 32, this->enemies[i]->getPosition().x + 32);
@@ -436,12 +509,25 @@ vector<int> Game::resolveCollisionsEnemy(Bullet& bullet, float size) {
 	return hitIndexes;
 }
 
-void Game::animatePushBack(Vector2f enemyPos, Vector2f plrPos) {
-	float vel = 500.f;
+void Game::animatePushBack() {
+	Clock c;
+	float newDt = 0;
 
-	for (int i = 0; i < 20; i++) {
-		this->plr.move(((plrPos - enemyPos) * this->dt * vel) / 20.f);
-		vel *= (1.f - this->dt * 0.99f);
-		sleep(Time(milliseconds(3)));
+	while (this->window.isOpen()) {
+		if (s_tryPush.load()) {
+			s_tryPush.store(false);
+			float velocity = enemyPush.velocity;
+			
+			for (int i = 0; i < 20; i++) {
+				Vector2f distance = this->plr.getPosition() - enemyPush.enemy->getPosition();
+				this->plr.move(((distance / hypotf(distance.x, distance.y)) * newDt * velocity) / 2.f);
+				velocity *= (1.f - newDt * 0.99f);
+				newDt = c.restart().asSeconds();
+				sleep(Time(milliseconds(3)));
+			}
+		}
+
+		newDt = c.restart().asSeconds();
+		sleep(Time(milliseconds(8.333)));
 	}
 }
