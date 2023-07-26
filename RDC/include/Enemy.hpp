@@ -10,6 +10,6 @@ protected:
 public:
 	void move(Vector2f offset) override;
 	void move(Vector2f offset, float dt);
-	float getHp();
 	void takeDamage(float damage);
+	float getHp();
 };

@@ -53,13 +53,13 @@ public:
 	Game() = default;
 	~Game() = default;
 
-	void render();
-	void update();
+	inline void render();
+	inline void update();
 	void init();
 	void keyHandler();
 	void spawnBullet();
 	void animatePushBack();
-	//void bulletHandler();
+	void bulletHandler();
 	bool resolveCollisions(RenderObject& obj, float radius);
-	vector<int> resolveCollisionsEnemy(Bullet& bullet, float size);
+	inline vector<int> resolveCollisionsEnemy(Bullet& bullet, float size);
 };

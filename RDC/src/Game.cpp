@@ -9,7 +9,7 @@ constexpr auto spawn = true;
 constexpr auto unlockFps = true;
 static atomic_bool s_trySpawn;
 static atomic_bool s_tryPush;
-//thread* bulletManagementThread = nullptr;
+thread* bulletManagementThread = nullptr;
 thread* bulletSpawnThread = nullptr;
 thread* pushbackThread = nullptr;
 
@@ -24,7 +24,6 @@ struct BD {
 	Texture* bulletTexture;
 	Sprite* gun;
 	Player* player;
-	vector<Bullet*>* bullets;
 }bulletDetails;
 
 // struct for enemy push values
@@ -68,7 +67,7 @@ void Game::init() {
 
 	this->window.create(VideoMode(1280, 720), "game", sf::Style::Default, settings);
 	
-	this->window.setFramerateLimit(144);
+	this->window.setFramerateLimit(0);
 
 	this->squareT.loadFromFile("./assets/square.png");
 	this->plrT.loadFromFile("./assets/plr.png");
@@ -98,16 +97,16 @@ void Game::init() {
 	this->pointR.setSize(Vector2f(8, 8));
 	this->pointR.setFillColor(Color::White);
 
-	/*for (int i = 0; i < 100; i++) {
+	for (int i = 0; i < 100; i++) {
 		Square* square = new Square;
 		square->init(this->squareT, Vector2f(64 * i, 0), 'b');
 		this->objects.push_back(square);
-	}*/
+	}
 
 	if (spawn) {
-		for (int i = 0; i < 100; i++) {
+		for (int i = 0; i < 10; i++) {
 			Enemy* enemy = new Enemy;
-			enemy->init(this->enemyT, Vector2f(rand() % 1920 + i, rand() % 1080 + i), 'e');
+			enemy->init(this->enemyT, Vector2f(rand() % 300 + i, rand() % 300 + i), 'e');
 			this->enemies.push_back(enemy);
 		}
 	}
@@ -123,16 +122,14 @@ void Game::init() {
 	bulletSpawnThread = new thread(&Game::spawnBullet, this);
 	bulletSpawnThread->detach();
 	pushbackThread = new thread(&Game::animatePushBack, this);
-	pushbackThread->detach();/*
+	pushbackThread->detach();
 	bulletManagementThread = new thread(&Game::bulletHandler, this);
-	bulletManagementThread->detach();*/
-
-	bulletDetails.bullets = &this->bullets;
+	bulletManagementThread->detach();
 
 	this->update();
 }
 
-void Game::update() {
+inline void Game::update() {
 	this->view.setCenter(this->plr.getPosition());
 
 	while (this->window.isOpen()) {
@@ -140,12 +137,12 @@ void Game::update() {
 			if (this->ev.type == sf::Event::Closed) {
 				this->window.close();
 			}
-			else if (this->ev.type == Event::MouseButtonPressed) {
+			else if (this->ev.type == Event::MouseButtonPressed && !s_trySpawn.load()) {
 				bulletDetails.burst = true;
 				bulletDetails.cd = 0.35f;
-				bulletDetails.damage = 5.f;
+				bulletDetails.damage = 20.f;
 				bulletDetails.maxDistance = 4000.f;
-				bulletDetails.shotCount = 10;
+				bulletDetails.shotCount = 1;
 				bulletDetails.spreadAngle = 1.f;
 				bulletDetails.bulletTexture = &this->bulletT;
 				bulletDetails.gun = &this->gun;
@@ -208,42 +205,6 @@ void Game::update() {
 		}
 
 		averagePosition /= counter;
-		
-		// 
-		// 
-		// 
-		// 
-		// bullet hitbox handling
-	
-		for (int i = this->bullets.size() - 1; i >= 0; i--) {
-			this->bullets[i]->move(bullets[i]->direction * -600.f * this->dt);
-			this->bullets[i]->distance += hypotf((this->bullets[i]->direction * -600.f * this->dt).x, (this->bullets[i]->direction * -600.f * this->dt).y);
-			vector<int> indexes = resolveCollisionsEnemy(*this->bullets[i], 2);
-			if (!indexes.empty() || resolveCollisions(*this->bullets[i], 2) || this->bullets[i]->distance > this->bullets[i]->maxDistance) {
-				this->bullets.erase(this->bullets.begin() + i);
-			}
-
-			if (!indexes.empty()) {
-				for (int j = 0; j < indexes.size(); j++) {
-					this->enemies[indexes[j]]->takeDamage(this->bullets[i]->damage);
-					if (this->enemies[indexes[j]]->getHp() <= 0) {
-						try {
-							this->enemies.erase(this->enemies.begin() + indexes[j]);
-						}
-						catch(const exception& ex) {
-							cout << ex.what() << endl;
-						}
-					}
-				}
-			}
-		}
-
-		//
-		//
-		//
-		//
-		//
-
 
 		if (counter > 1 && !outOfRange) {
 			this->view.move((averagePosition - this->view.getCenter()) * this->cameraDamping * this->dt);
@@ -267,12 +228,12 @@ void Game::update() {
 	delete bulletSpawnThread;
 	pushbackThread = nullptr;
 	delete pushbackThread;
-	/*bulletManagementThread = nullptr;
-	delete bulletManagementThread;*/
+	bulletManagementThread = nullptr;
+	delete bulletManagementThread;
 
 }
 
-void Game::render() {
+inline void Game::render() {
 	this->window.clear();
 
 	if (this->hp > 0) {
@@ -389,7 +350,6 @@ void Game::keyHandler() {
 // spread - spread angle in degrees
 void Game::spawnBullet() {
 	Clock fireCD;
-	vector<Bullet*>* bullets = bulletDetails.bullets;
 
 	while (this->window.isOpen()) {
 		if (s_trySpawn.load()) {
@@ -413,7 +373,6 @@ void Game::spawnBullet() {
 					bullet->setOrigin(Vector2f(4, 4));
 					bullet->setPosition(gunPosition + mouseToGunNorm * -50.f);
 
-
 					Vector2f distance = playerPosition - mousePosition;
 					float angle = atan2(distance.y, distance.x);
 
@@ -427,7 +386,12 @@ void Game::spawnBullet() {
 					Vector2f normalized = distanceSpread / hypotf(distanceSpread.x, distanceSpread.y);
 					bullet->direction = normalized;
 
-					bullets->push_back(bullet);
+					try {
+						this->bullets.push_back(bullet);
+					}
+					catch (exception& e) {
+						cout << "Bullet add exception: " << " " << e.what() << '\n';
+					}
 
 					if (burst) {
 						sleep(Time(milliseconds(40)));
@@ -439,35 +403,55 @@ void Game::spawnBullet() {
 	}
 }
 
-//void Game::bulletHandler() {
-//	Clock c;
-//	float newDt = 0;
-//
-//	while (this->window.isOpen()) {
-//		for (int i = this->bullets.size() - 1; i >= 0; i--) {
-//			this->bullets[i]->move(bullets.load()[i]->direction * -600.f * newDt);
-//			this->bullets[i]->distance += hypotf((this->bullets[i]->direction * -600.f * newDt).x, (this->bullets[i]->direction * -600.f * newDt).y);
-//			
-//			vector<int> indexes = this->resolveCollisionsEnemy(*this->bullets[i], 2);
-//
-//			if (!indexes.empty() || this->resolveCollisions(*this->bullets[i], 2) || this->bullets[i]->distance > this->bullets[i]->maxDistance) {
-//				this->bullets.erase(this->bullets.begin() + i);
-//			}
-//
-//			if (!indexes.empty()) {
-//				for (int j = 0; j < indexes.size(); j++) {
-//					this->enemies[indexes[j]]->takeDamage(this->bullets[i]->damage);
-//					if (this->enemies[indexes[j]]->getHp() <= 0) {
-//						this->enemies.erase(this->enemies.begin() + indexes[j]);
-//					}
-//				}
-//			}
-//		}
-//
-//		newDt = c.restart().asSeconds();
-//	}
-//
-//}
+void Game::bulletHandler() {
+	Clock c;
+	float newDt = 0;
+
+	while (this->window.isOpen()) {
+		for (int i = this->bullets.size() - 1; i >= 0; i--) {
+			this->bullets[i]->move(this->bullets[i]->direction * -600.f * newDt);
+			this->bullets[i]->distance += hypotf((this->bullets[i]->direction * -600.f * newDt).x, (this->bullets[i]->direction * -600.f * newDt).y);
+			
+			vector<int> indexes = this->resolveCollisionsEnemy(*this->bullets[i], 2);
+
+			try {
+				if (!indexes.empty()) {
+					if (i < this->bullets.size()) {
+						this->bullets.erase(this->bullets.begin() + i);
+						cout << "erased" << '\n';
+					}
+				}
+				else if (this->resolveCollisions(*this->bullets[i], 2) || this->bullets[i]->distance > this->bullets[i]->maxDistance) {
+					if (i < this->bullets.size()) {
+						this->bullets.erase(this->bullets.begin() + i);
+						cout << "erased" << '\n';
+					}
+				}
+			}
+			catch (exception& e) {
+				cout << "Bullet erase exception: " << " " << e.what() << '\n';
+			}
+
+			if (!indexes.empty()) {
+				cout << "hit" << '\n';
+				for (int j = 0; j < indexes.size(); j++) {
+					this->enemies[indexes[j]]->takeDamage(this->bullets[i]->damage);
+					if (this->enemies[indexes[j]]->getHp() <= 0) {
+						try {
+							this->enemies.erase(this->enemies.begin() + indexes[j]);
+						}
+						catch (exception& e) {
+							cout << "Enemie erase exception: " << " " << e.what() << '\n';
+						}
+					}
+				}
+			}
+		}
+
+		newDt = c.restart().asSeconds();
+	}
+
+}
 
 bool Game::resolveCollisions(RenderObject& obj, float radius) {
 	for (int i = 0; i < 10; i++) {
